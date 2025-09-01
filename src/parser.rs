@@ -304,7 +304,7 @@ impl NetexData {
         for child in node.descendants() {
             match child.tag_name().name() {
                 "ShortName" => {
-                    result.short_name = child.text().unwrap_or_default().to_owned();
+                    child.text().unwrap_or_default().clone_into(&mut result.short_name);
                 }
                 "AuthorityRef" => {
                     result.authority =
@@ -323,7 +323,7 @@ impl NetexData {
         };
         for child in node.descendants() {
             if child.tag_name().name() == "ShortName" {
-                result.short_name = child.text().unwrap_or_default().to_owned();
+                child.text().unwrap_or_default().clone_into(&mut result.short_name);
             }
         }
         result
@@ -366,16 +366,9 @@ impl NetexData {
         year | (day << 11)
     }
 
-    fn decode_date(value: u16) -> (u16, u16, u16) {
-        let year = value & 0b_0000_0000_0111_1111;
-        let month = (value >> 7) & 0b_0000_0000_0000_1111;
-        let day = (value >> 11) & 0b_0000_0000_0001_1111;
-        (year, month, day)
-    }
-
     // Parses "11001100"... as Vec<u8>
     fn parse_day_bits(mut value: String) -> Vec<u8> {
-        let pad_len = 8 - (value.as_bytes().len() % 8);
+        let pad_len = 8 - (value.len() % 8);
         if pad_len != 8 {
             value.push_str(&"0".repeat(pad_len));
         }
@@ -420,7 +413,9 @@ mod tests {
     #[test]
     fn decode_date() {
         let parsed = super::NetexData::parse_date("2045-11-23T00:00:00");
-        let (year, month, day) = super::NetexData::decode_date(parsed);
+        let year = parsed & 0b_0000_0000_0111_1111;
+        let month = (parsed >> 7) & 0b_0000_0000_0000_1111;
+        let day = (parsed >> 11) & 0b_0000_0000_0001_1111;
         assert_eq!(year, 45_u16);
         assert_eq!(month, 11_u16);
         assert_eq!(day, 23_u16);

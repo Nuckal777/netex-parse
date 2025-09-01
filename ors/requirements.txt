@@ -1,4 +1,4 @@
 LatLon23==1.0.7
 openrouteservice==2.3.3
-pandas==1.5.3
-tqdm==4.66.2
+pandas==2.2.3
+tqdm==4.66.6

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use base64::engine::Engine;
-use geo::{Centroid, HaversineDestination};
+use geo::{Centroid, Destination, Haversine};
 use indicatif::ParallelProgressIterator;
 use rayon::iter::{IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator};
 
@@ -124,8 +124,8 @@ impl Nodes {
                 let indices = tree.iter().next().unwrap().data;
                 let current = &data[indices.data].scheduled_stop_points[indices.stop];
                 let center = geo::Point::from((current.long, current.lat));
-                let corner1 = center.haversine_destination(45.0, distance);
-                let corner2 = center.haversine_destination(225.0, distance);
+                let corner1 = Haversine.destination(center, 45.0, distance);
+                let corner2 = Haversine.destination(center, 225.0, distance);
                 let aabb =
                     rstar::AABB::<geo::Coord<f32>>::from_corners(corner1.into(), corner2.into());
                 let local: Vec<TreeObj> = tree.drain_in_envelope(aabb).collect();

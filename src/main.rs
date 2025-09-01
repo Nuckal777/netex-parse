@@ -41,7 +41,7 @@ pub struct Args {
 fn main() {
     let args = Args::parse();
     let zip_stream = std::fs::File::open(args.netex_file).expect("failed to open data");
-    let zip_memmap = unsafe { memmap::Mmap::map(&zip_stream).expect("failed mmap") };
+    let zip_memmap = unsafe { memmap2::Mmap::map(&zip_stream).expect("failed mmap") };
     let zip_cursor = std::io::Cursor::new(&zip_memmap);
     let archive = ZipArchive::new(zip_cursor).expect("failed to read zip");
     let documents: Vec<String> = archive
@@ -70,7 +70,7 @@ fn main() {
     }
 }
 
-fn parse(archive: &memmap::Mmap, documents: &[String], walkways: &[WalkEdge]) -> graph::Graph {
+fn parse(archive: &memmap2::Mmap, documents: &[String], walkways: &[WalkEdge]) -> graph::Graph {
     let mut data = documents
         .par_iter()
         .progress_count(documents.len() as u64)
