@@ -77,7 +77,13 @@ fn parse(archive: &memmap2::Mmap, documents: &[String], walkways: &[WalkEdge]) -
         .map(|doc| {
             let zip_cursor = std::io::Cursor::new(archive);
             let mut archive = ZipArchive::new(zip_cursor).expect("failed to read zip");
-            let file = archive.by_name(doc).expect("failed to find document");
+            let file = match archive.by_name(doc) {
+                Ok(f) => f,
+                Err(err) => {
+                    println!("{doc} had err: {err}");
+                    return Vec::new();
+                }
+            };
             if file.is_dir() {
                 return Vec::new();
             }
@@ -182,8 +188,7 @@ fn dump_binary(graph: &graph::Graph) -> Result<(), Box<dyn std::error::Error>> {
         let journeys_len: u16 = journeys.len().try_into()?;
         writer.write_all(&journeys_len.to_le_bytes())?;
         for journey in journeys {
-            writer.write_all(&journey.arrival.to_le_bytes())?;
-            writer.write_all(&journey.departure.to_le_bytes())?;
+            writer.write_all(&encode_arrival_departure(journey.arrival, journey.departure))?;
             writer.write_all(&(journey.operating_period as u16).to_le_bytes())?;
         }
         let mut periods = Vec::<u8>::new();
@@ -229,4 +234,42 @@ fn dump_binary(graph: &graph::Graph) -> Result<(), Box<dyn std::error::Error>> {
         .collect();
     std::fs::write("nodes.json", serde_json::to_vec(&metas)?)?;
     Ok(())
+}
+
+
+
+fn encode_arrival_departure(arrival: u16, departure: u16) -> [u8; 3] {
+    let mut result = [0_u8, 0, 0];
+    result[0] = arrival.to_le_bytes()[0];
+    result[1] = arrival.to_le_bytes()[1] << 4;
+    result[2] = departure.to_le_bytes()[0];
+    result[1] |= departure.to_le_bytes()[1] & 0xF;
+    result
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{encode_arrival_departure};
+
+    fn decode_arrival_departure(data: [u8; 3]) -> (u16, u16) {
+        let arrival = u16::from(data[0]) | u16::from(data[1] & 0xF0) << 4;
+        let departure = u16::from(data[2]) | u16::from(data[1] & 0xF) << 8;
+        (arrival, departure)
+    }
+
+    #[test]
+    fn kek() {
+        let data = encode_arrival_departure(1025, 1430);
+        let (a, b) = decode_arrival_departure(data);
+        assert_eq!(a, 1025);
+        assert_eq!(b, 1430);
+    }
+
+    #[test]
+    fn kek2() {
+        let data = encode_arrival_departure(240, 579);
+        let (a, b) = decode_arrival_departure(data);
+        assert_eq!(a, 240);
+        assert_eq!(b, 579);
+    }
 }
