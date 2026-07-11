@@ -1,20 +1,20 @@
 [package]
 name = "netex-parse"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 base64 = "0.22"
-clap = { version = "4.5", features = ["derive"] }
-geo = "0.31"
+clap = { version = "4.6", features = ["derive"] }
+geo = "0.33"
 indicatif = {version = "0.18.0", features = ["rayon"]}
 memmap2 = "0.9"
-rayon = "1.11"
-roxmltree = "0.20"
+rayon = "1.12"
+roxmltree = "0.21"
 rstar = "0.12"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 xxhash-rust = { version = "0.8", default-features = false, features = ["xxh3"] }
-zip = { version = "4.6", default-features = false, features = ["deflate"] }
+zip = { version = "7.2", default-features = false, features = ["deflate"] }
