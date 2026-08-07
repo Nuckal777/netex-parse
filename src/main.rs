@@ -143,8 +143,8 @@ fn dump_csv(graph: &graph::Graph) -> Result<(), Box<dyn std::error::Error>> {
 #[derive(serde::Serialize)]
 struct MetaNode {
     name: String,
-    // large u64 do not survive JSON.parse over in JSLand
-    // so we use a string here
+    // large u64 do not survive JSON.parse over in
+    // the JS world, so use a string here
     id: String,
     coords: [f32; 2],
 }
@@ -178,19 +178,45 @@ fn dump_binary(graph: &graph::Graph) -> Result<(), Box<dyn std::error::Error>> {
         Ok(data)
     }
 
+    fn journeys_as_bytes(
+        journeys: &[graph::Journey],
+    ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+        let mut data = Vec::<u8>::new();
+        let mut writer = std::io::Cursor::new(&mut data);
+        for journey in journeys {
+            writer.write_all(&encode_arrival_departure(
+                journey.arrival,
+                journey.departure,
+            ))?;
+            write_period_index(&mut writer, journey.operating_period)?;
+        }
+        Ok(data)
+    }
+
+    fn write_period_index<T: std::io::Write>(
+        writer: &mut T,
+        operating_period: usize,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        if operating_period < 128 {
+            writer.write_all(&[operating_period as u8])?;
+            return Ok(());
+        }
+        let out1 = 0x80 | ((operating_period >> 8) as u8 & 0x7F);
+        let out2 = operating_period as u8;
+        writer.write_all(&[out1, out2])?;
+        Ok(())
+    }
+
     fn edge_as_bytes(edge: &graph::Edge) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         let mut data = Vec::<u8>::new();
         let mut writer = std::io::Cursor::new(&mut data);
         writer.write_all(&(edge.start_node as u32).to_le_bytes())?;
         writer.write_all(&(edge.end_node as u32).to_le_bytes())?;
         writer.write_all(&edge.walk_seconds.to_le_bytes())?;
-        let journeys = &edge.timetable.journeys;
-        let journeys_len: u16 = journeys.len().try_into()?;
+        let journeys_data = journeys_as_bytes(&edge.timetable.journeys)?;
+        let journeys_len: u16 = journeys_data.len().try_into()?;
         writer.write_all(&journeys_len.to_le_bytes())?;
-        for journey in journeys {
-            writer.write_all(&encode_arrival_departure(journey.arrival, journey.departure))?;
-            writer.write_all(&(journey.operating_period as u16).to_le_bytes())?;
-        }
+        writer.write_all(&journeys_data)?;
         let mut periods = Vec::<u8>::new();
         for period in &edge.timetable.periods {
             periods.extend(period_as_bytes(period)?);
@@ -236,8 +262,6 @@ fn dump_binary(graph: &graph::Graph) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-
-
 fn encode_arrival_departure(arrival: u16, departure: u16) -> [u8; 3] {
     let mut result = [0_u8, 0, 0];
     result[0] = arrival.to_le_bytes()[0];
@@ -249,7 +273,7 @@ fn encode_arrival_departure(arrival: u16, departure: u16) -> [u8; 3] {
 
 #[cfg(test)]
 mod tests {
-    use crate::{encode_arrival_departure};
+    use crate::encode_arrival_departure;
 
     fn decode_arrival_departure(data: [u8; 3]) -> (u16, u16) {
         let arrival = u16::from(data[0]) | u16::from(data[1] & 0xF0) << 4;
@@ -258,7 +282,7 @@ mod tests {
     }
 
     #[test]
-    fn kek() {
+    fn arrival_departure_roundtrip1() {
         let data = encode_arrival_departure(1025, 1430);
         let (a, b) = decode_arrival_departure(data);
         assert_eq!(a, 1025);
@@ -266,7 +290,7 @@ mod tests {
     }
 
     #[test]
-    fn kek2() {
+    fn arrival_departure_roundtrip2() {
         let data = encode_arrival_departure(240, 579);
         let (a, b) = decode_arrival_departure(data);
         assert_eq!(a, 240);

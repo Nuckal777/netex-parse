@@ -256,12 +256,12 @@ def for_each_nearby_rect(
 
 
 class Edge:
-    start: str
-    end: str
+    start: int
+    end: int
     duration: float
     distance: float
 
-    def __init__(self, start: str, end: str, duration: float, distance: float):
+    def __init__(self, start: int, end: int, duration: float, distance: float):
         self.start = start
         self.end = end
         self.duration = duration

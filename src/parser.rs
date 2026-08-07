@@ -1,19 +1,6 @@
 use xxhash_rust::xxh3::xxh3_64;
 
 #[derive(Clone, Default)]
-pub struct Authority {
-    pub id: u64,
-    pub short_name: String,
-}
-
-#[derive(Clone, Default)]
-pub struct Line {
-    pub id: u64,
-    pub short_name: String,
-    pub authority: u64,
-}
-
-#[derive(Clone, Default)]
 pub struct DayTypeAssignment {
     pub operating_period: u64,
     pub day_type: u64,
@@ -46,7 +33,6 @@ pub struct StopPointInJourneyPattern {
 pub struct ServiceJourneyPattern {
     pub stops: Vec<StopPointInJourneyPattern>,
     pub line: u64,
-    pub id: u64,
 }
 
 #[derive(Default)]
@@ -61,7 +47,6 @@ pub struct ServiceJourney {
     pub passing_times: Vec<TimetabledPassingTime>,
     pub day_type: u64,
     pub transport_mode: String,
-    pub pattern_ref: u64,
 }
 
 #[derive(Default)]
@@ -71,8 +56,6 @@ pub struct NetexData {
     pub service_journeys: Vec<ServiceJourney>,
     pub operating_periods: Vec<UicOperatingPeriod>,
     pub day_type_assignments: Vec<DayTypeAssignment>,
-    pub lines: Vec<Line>,
-    pub authorities: Vec<Authority>,
 }
 
 impl NetexData {
@@ -122,19 +105,6 @@ impl NetexData {
                 .collect();
         data.day_type_assignments = day_type_assignments?;
 
-        let lines: Vec<Line> = document
-            .descendants()
-            .filter(|node| node.tag_name().name() == "Line")
-            .map(|node| NetexData::parse_line(&node))
-            .collect();
-        data.lines = lines;
-
-        let authorities: Vec<Authority> = document
-            .descendants()
-            .filter(|node| node.tag_name().name() == "Authority")
-            .map(|node| NetexData::parse_authority(&node))
-            .collect();
-        data.authorities = authorities;
         Ok(data)
     }
 
@@ -171,10 +141,7 @@ impl NetexData {
     }
 
     fn parse_service_journey_pattern(node: &roxmltree::Node) -> ServiceJourneyPattern {
-        let mut result = ServiceJourneyPattern {
-            id: xxh3_64(node.attribute("id").unwrap_or_default().as_bytes()),
-            ..ServiceJourneyPattern::default()
-        };
+        let mut result = ServiceJourneyPattern::default();
         for sub_node in node.descendants() {
             if sub_node.tag_name().name() == "LineRef" {
                 result.line = xxh3_64(sub_node.attribute("ref").unwrap_or_default().as_bytes());
@@ -211,16 +178,9 @@ impl NetexData {
             .unwrap()
             .text()
             .unwrap_or_default();
-        let pattern_ref = node
-            .descendants()
-            .find(|node| node.tag_name().name() == "ServiceJourneyPatternRef")
-            .unwrap()
-            .attribute("ref")
-            .unwrap_or_default();
         let mut result = ServiceJourney {
             day_type: xxh3_64(day_type.as_bytes()),
             transport_mode: transport_mode.to_owned(),
-            pattern_ref: xxh3_64(pattern_ref.as_bytes()),
             ..ServiceJourney::default()
         };
         let passing_times_node = node
@@ -296,40 +256,7 @@ impl NetexData {
         Ok(assignment)
     }
 
-    fn parse_line(node: &roxmltree::Node) -> Line {
-        let mut result = Line {
-            id: xxh3_64(node.attribute("id").unwrap_or_default().as_bytes()),
-            ..Line::default()
-        };
-        for child in node.descendants() {
-            match child.tag_name().name() {
-                "ShortName" => {
-                    child.text().unwrap_or_default().clone_into(&mut result.short_name);
-                }
-                "AuthorityRef" => {
-                    result.authority =
-                        xxh3_64(child.attribute("ref").unwrap_or_default().as_bytes());
-                }
-                _ => {}
-            }
-        }
-        result
-    }
-
-    fn parse_authority(node: &roxmltree::Node) -> Authority {
-        let mut result = Authority {
-            id: xxh3_64(node.attribute("id").unwrap_or_default().as_bytes()),
-            ..Authority::default()
-        };
-        for child in node.descendants() {
-            if child.tag_name().name() == "ShortName" {
-                child.text().unwrap_or_default().clone_into(&mut result.short_name);
-            }
-        }
-        result
-    }
-
-    // In netex departure and arrival time are reqpresented as hh:mm:ss
+    // In netex departure and arrival times are reqpresented as hh:mm:ss
     // seconds are mostly 00 anyway, so we only care about the minute of day
     // lets also assume times are represented as ascii chars
     #[allow(clippy::cast_lossless)]

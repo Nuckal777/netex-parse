@@ -5,9 +5,7 @@ use geo::{Centroid, Destination, Haversine};
 use indicatif::ParallelProgressIterator;
 use rayon::iter::{IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator};
 
-use crate::parser::{
-    Authority, DayTypeAssignment, Line, NetexData, ServiceJourney, UicOperatingPeriod,
-};
+use crate::parser::{DayTypeAssignment, NetexData, ServiceJourney, UicOperatingPeriod};
 
 #[derive(Clone, Default, Debug)]
 pub struct Node {
@@ -27,10 +25,6 @@ pub struct Journey {
     pub transport_mode: String,
     #[serde(rename(serialize = "o"))]
     pub operating_period: usize,
-    #[serde(rename(serialize = "l"))]
-    pub line: String,
-    #[serde(rename(serialize = "c"))]
-    pub controller: String,
 }
 
 #[derive(Clone, Default, Debug, serde::Serialize)]
@@ -186,10 +180,7 @@ impl Nodes {
 }
 
 pub struct JourneyTransformer {
-    authorities: HashMap<u64, Authority>,
     day_type_assignments: HashMap<u64, DayTypeAssignment>,
-    lines: HashMap<u64, Line>,
-    pattern_ref_to_line_ref: HashMap<u64, u64>,
     point_in_journey_to_stop_ref: HashMap<u64, u64>,
     period_map: HashMap<u64, usize>,
 }
@@ -207,27 +198,6 @@ impl JourneyTransformer {
             }
         }
 
-        let mut lines = HashMap::<u64, Line>::new();
-        for one_data in data {
-            for line in &one_data.lines {
-                lines.insert(line.id, line.clone());
-            }
-        }
-
-        let mut authorities = HashMap::<u64, Authority>::new();
-        for one_data in data {
-            for authority in &one_data.authorities {
-                authorities.insert(authority.id, authority.clone());
-            }
-        }
-
-        let mut pattern_ref_to_line_ref = HashMap::<u64, u64>::new();
-        for one_data in data {
-            for journey_pattern in &one_data.service_journey_patterns {
-                pattern_ref_to_line_ref.insert(journey_pattern.id, journey_pattern.line);
-            }
-        }
-
         let mut period_map = HashMap::<u64, usize>::new();
         for (idx, period) in data
             .iter()
@@ -237,15 +207,15 @@ impl JourneyTransformer {
             period_map.insert(period.id, idx);
         }
         let mut day_type_assignments = HashMap::<u64, DayTypeAssignment>::new();
-        for dta in data.iter().flat_map(|d| d.day_type_assignments.iter()) {
+        for dta in data
+            .iter()
+            .flat_map(|d| d.day_type_assignments.iter().filter(|d| d.is_available))
+        {
             day_type_assignments.insert(dta.day_type, dta.clone());
         }
 
         JourneyTransformer {
-            authorities,
             day_type_assignments,
-            lines,
-            pattern_ref_to_line_ref,
             point_in_journey_to_stop_ref,
             period_map,
         }
@@ -280,14 +250,11 @@ impl JourneyTransformer {
                     end_node: end_indecies.node,
                     timetable: Timetable::default(),
                 });
-            let line = &self.lines[&self.pattern_ref_to_line_ref[&journey.pattern_ref]];
             entry.timetable.journeys.push(Journey {
                 departure: pre.departure,
                 arrival: current.arrival,
                 transport_mode: journey.transport_mode.clone(),
                 operating_period: *self.period_map.get(&period).unwrap(),
-                line: line.short_name.clone(),
-                controller: self.authorities[&line.authority].short_name.clone(),
             });
         }
         local_edges
@@ -298,7 +265,9 @@ impl Graph {
     pub fn from_data(data: &[NetexData], walk_seconds: &[WalkEdge]) -> Graph {
         // nodes contains stops deduplicated by short name
         let nodes = Nodes::from_data(data);
+        println!("build nodes");
         let journey_transformer = JourneyTransformer::from_data(data);
+        println!("build journey transformer");
 
         let mut edges = data
             .par_iter()
@@ -321,6 +290,7 @@ impl Graph {
                 b
             });
 
+        println!("build global edges");
         // loop through walk seconds hashmap
         for walk_edge in walk_seconds {
             Self::update_walk(walk_edge, &nodes, &mut edges);
@@ -363,9 +333,13 @@ impl Graph {
             edge.timetable.periods = local_ops;
         });
 
+        let mut edges: Vec<Edge> = edges.into_values().collect();
+        edges.sort_unstable_by_key(|e| e.start_node);
+        println!("sorted");
+
         Graph {
             nodes: nodes.vec,
-            edges: edges.into_values().collect(),
+            edges,
         }
     }
 
@@ -375,7 +349,7 @@ impl Graph {
             nodes.index_by_id(walk_edge.start),
             nodes.index_by_id(walk_edge.end),
         ) else {
-            println!("{} -> {} borked", walk_edge.start, walk_edge.end);
+            println!("{} -> {} broken", walk_edge.start, walk_edge.end);
             return;
         };
         let start_node = nodes.get(start_idx);
