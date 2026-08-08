@@ -5,7 +5,10 @@ use indicatif::ParallelProgressIterator;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use zip::ZipArchive;
 
-use crate::{graph::WalkEdge, parser::NetexData};
+use crate::{
+    graph::{ValidDays, WalkEdge},
+    parser::NetexData,
+};
 
 mod graph;
 mod parser;
@@ -165,6 +168,24 @@ fn dump_binary(graph: &graph::Graph) -> Result<(), Box<dyn std::error::Error>> {
         Ok(data)
     }
 
+    fn valid_days_to_bytes(
+        valid_days: &[ValidDays],
+    ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+        let mut data = Vec::<u8>::new();
+        let mut writer = std::io::Cursor::new(&mut data);
+        let valid_day_len: u16 = valid_days
+            .len()
+            .try_into()
+            .expect("valid_day_len too large :(");
+        writer.write_all(&valid_day_len.to_le_bytes())?;
+        for vd in valid_days {
+            let vd_len: u8 = vd.bits.len().try_into()?;
+            writer.write_all(&[vd_len])?;
+            writer.write_all(&vd.bits)?;
+        }
+        Ok(data)
+    }
+
     fn period_as_bytes(
         period: &graph::OperatingPeriod,
     ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
@@ -172,9 +193,8 @@ fn dump_binary(graph: &graph::Graph) -> Result<(), Box<dyn std::error::Error>> {
         let mut writer = std::io::Cursor::new(&mut data);
         writer.write_all(&period.from.to_le_bytes())?;
         writer.write_all(&period.to.to_le_bytes())?;
-        let day_len_byte: u8 = period.valid_day.len().try_into()?;
-        writer.write_all(&[day_len_byte])?;
-        writer.write_all(&period.valid_day)?;
+        let valid_day_idx: u16 = period.valid_days_idx.try_into()?;
+        writer.write_all(&valid_day_idx.to_le_bytes())?;
         Ok(data)
     }
 
@@ -214,7 +234,7 @@ fn dump_binary(graph: &graph::Graph) -> Result<(), Box<dyn std::error::Error>> {
         writer.write_all(&(edge.end_node as u32).to_le_bytes())?;
         writer.write_all(&edge.walk_seconds.to_le_bytes())?;
         let journeys_data = journeys_as_bytes(&edge.timetable.journeys)?;
-        let journeys_len: u16 = journeys_data.len().try_into()?;
+        let journeys_len: u32 = journeys_data.len().try_into()?;
         writer.write_all(&journeys_len.to_le_bytes())?;
         writer.write_all(&journeys_data)?;
         let mut periods = Vec::<u8>::new();
@@ -239,6 +259,8 @@ fn dump_binary(graph: &graph::Graph) -> Result<(), Box<dyn std::error::Error>> {
     }
     writer.write_all(&(graph.nodes.len() as u32).to_le_bytes())?;
     writer.write_all(&node_data)?;
+
+    writer.write_all(&valid_days_to_bytes(&graph.valid_days)?)?;
     // edges with data
     let mut edge_data = Vec::<u8>::new();
     let mut edge_writer = std::io::Cursor::new(&mut edge_data);

@@ -34,8 +34,13 @@ pub struct OperatingPeriod {
     #[serde(rename(serialize = "t"))]
     pub to: u16,
     #[serde(rename(serialize = "v"))]
-    pub valid_day_bits: String,
-    pub valid_day: Vec<u8>,
+    pub valid_days_idx: usize,
+}
+
+#[derive(Clone, Default, Debug, serde::Serialize)]
+pub struct ValidDays {
+    pub str: String,
+    pub bits: Vec<u8>,
 }
 
 #[derive(Debug, Default, serde::Serialize)]
@@ -58,6 +63,7 @@ pub struct Edge {
 pub struct Graph {
     pub nodes: Vec<Node>,
     pub edges: Vec<Edge>,
+    pub valid_days: Vec<ValidDays>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -301,6 +307,24 @@ impl Graph {
             Self::filter_journeys(edge, &nodes);
         });
 
+        // build valid_day_bits lookup map
+        let mut valid_day_bits_counter = 0;
+        let mut valid_day_map = std::collections::HashMap::<Vec<u8>, usize>::new();
+        let mut valid_day_vec = Vec::<ValidDays>::new();
+        for one_data in data {
+            for period in &one_data.operating_periods {
+                if !valid_day_map.contains_key(&period.valid_day_bits) {
+                    valid_day_map.insert(period.valid_day_bits.clone(), valid_day_bits_counter);
+                    valid_day_vec.push(ValidDays {
+                        bits: period.valid_day_bits.clone(),
+                        str: base64::engine::general_purpose::STANDARD
+                            .encode(&period.valid_day_bits),
+                    });
+                    valid_day_bits_counter += 1;
+                }
+            }
+        }
+
         // map global operating period index to local index
         edges.par_iter_mut().for_each(|(_, edge)| {
             let mut global_to_local = HashMap::<usize, usize>::new();
@@ -320,9 +344,7 @@ impl Graph {
                 local_ops[*local] = OperatingPeriod {
                     from: uic_op.from,
                     to: uic_op.to,
-                    valid_day_bits: base64::engine::general_purpose::STANDARD
-                        .encode(&uic_op.valid_day_bits),
-                    valid_day: uic_op.valid_day_bits.clone(),
+                    valid_days_idx: *valid_day_map.get(&uic_op.valid_day_bits).unwrap(),
                 }
             }
             for journey in &mut edge.timetable.journeys {
@@ -340,6 +362,7 @@ impl Graph {
         Graph {
             nodes: nodes.vec,
             edges,
+            valid_days: valid_day_vec,
         }
     }
 
