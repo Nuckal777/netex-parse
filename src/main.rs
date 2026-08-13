@@ -39,11 +39,19 @@ pub struct Args {
     /// Substring the netex documents file names must included.
     #[clap(short, long, default_value = "")]
     filter: String,
+
+    /// Date (YYYY-MM-DD) from which the dataset can be considered valid.
+    #[clap(long, default_value = "2000-01-01")]
+    from: String,
+
+    /// Date (YYYY-MM-DD) to which the dataset can be considered valid.
+    #[clap(long, default_value = "2100-01-01")]
+    to: String,
 }
 
 fn main() {
     let args = Args::parse();
-    let zip_stream = std::fs::File::open(args.netex_file).expect("failed to open data");
+    let zip_stream = std::fs::File::open(&args.netex_file).expect("failed to open data");
     let zip_memmap = unsafe { memmap2::Mmap::map(&zip_stream).expect("failed mmap") };
     let zip_cursor = std::io::Cursor::new(&zip_memmap);
     let archive = ZipArchive::new(zip_cursor).expect("failed to read zip");
@@ -67,9 +75,14 @@ fn main() {
         graph.nodes.len(),
         graph.edges.len(),
     );
+    let metadata = graph::Metadata {
+        name: args.netex_file.to_string_lossy().to_string(),
+        from: parser::NetexData::parse_date(&args.from),
+        to: parser::NetexData::parse_date(&args.to),
+    };
     match args.output_format {
         OutputFormat::Csv => dump_csv(&graph).expect("failed to dump csv"),
-        OutputFormat::Binary => dump_binary(&graph).expect("failed to dump binary"),
+        OutputFormat::Binary => dump_binary(&metadata, &graph).expect("failed to dump binary"),
     }
 }
 
@@ -153,9 +166,23 @@ struct MetaNode {
 }
 
 #[allow(clippy::cast_possible_truncation)]
-fn dump_binary(graph: &graph::Graph) -> Result<(), Box<dyn std::error::Error>> {
+fn dump_binary(
+    metdata: &graph::Metadata,
+    graph: &graph::Graph,
+) -> Result<(), Box<dyn std::error::Error>> {
+    fn metdata_as_bytes(metdata: &graph::Metadata) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+        let mut data = Vec::<u8>::new();
+        let mut writer = std::io::Cursor::new(&mut data);
+        writer.write_all(&metdata.from.to_le_bytes())?;
+        writer.write_all(&metdata.to.to_le_bytes())?;
+        let name_len: u16 = metdata.name.len().try_into()?;
+        writer.write_all(&name_len.to_le_bytes())?;
+        writer.write_all(metdata.name.as_bytes())?;
+        Ok(data)
+    }
+
     fn node_as_bytes(node: &graph::Node) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-        // id is implicit
+        // index is implicit
         let mut data = Vec::<u8>::new();
         let mut writer = std::io::Cursor::new(&mut data);
         writer.write_all(&node.id.to_le_bytes())?;
@@ -252,6 +279,11 @@ fn dump_binary(graph: &graph::Graph) -> Result<(), Box<dyn std::error::Error>> {
     let mut writer = std::io::BufWriter::new(opts.open("./graph.bin")?);
     // TODO: magic number, file version
     // nodes with data
+    let metadata_data = metdata_as_bytes(metdata)?;
+    let metadata_len: u16 = metadata_data.len().try_into()?;
+    writer.write_all(&metadata_len.to_le_bytes())?;
+    writer.write_all(&metadata_data)?;
+
     let mut node_data = Vec::<u8>::new();
     let mut node_writer = std::io::Cursor::new(&mut node_data);
     for node in &graph.nodes {

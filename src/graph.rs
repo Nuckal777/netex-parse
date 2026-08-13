@@ -8,6 +8,15 @@ use rayon::iter::{IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelI
 use crate::parser::{DayTypeAssignment, NetexData, ServiceJourney, UicOperatingPeriod};
 
 #[derive(Clone, Default, Debug)]
+pub struct Metadata {
+    // Name of the dataset
+    pub name: String,
+    // Validity dates of the dataset
+    pub from: u16,
+    pub to: u16,
+}
+
+#[derive(Clone, Default, Debug)]
 pub struct Node {
     pub id: u64,
     pub short_name: String,

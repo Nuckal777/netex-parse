@@ -274,7 +274,7 @@ impl NetexData {
     // Parses "2022-06-13T00:00:00" into bits
     // day 5 bit, month 4 bit, year 7 bit
     #[allow(clippy::cast_lossless)]
-    fn parse_date(value: &str) -> u16 {
+    pub fn parse_date(value: &str) -> u16 {
         const ASCII_ZERO: u16 = 48;
         let bytes = value.as_bytes();
         // year
