@@ -47,6 +47,10 @@ pub struct Args {
     /// Date (YYYY-MM-DD) to which the dataset can be considered valid.
     #[clap(long, default_value = "2100-01-01")]
     to: String,
+
+    /// Name of the dataset stored in the binary output.
+    #[clap(long)]
+    name: Option<String>,
 }
 
 fn main() {
@@ -76,7 +80,9 @@ fn main() {
         graph.edges.len(),
     );
     let metadata = graph::Metadata {
-        name: args.netex_file.to_string_lossy().to_string(),
+        name: args
+            .name
+            .unwrap_or(args.netex_file.to_string_lossy().to_string()),
         from: parser::NetexData::parse_date(&args.from),
         to: parser::NetexData::parse_date(&args.to),
     };

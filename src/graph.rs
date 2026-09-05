@@ -297,10 +297,7 @@ impl Graph {
                         end_node: key.1,
                         timetable: Timetable::default(),
                     });
-                    entry
-                        .timetable
-                        .journeys
-                        .extend(value.timetable.journeys.into_iter());
+                    entry.timetable.journeys.extend(value.timetable.journeys);
                 }
                 b
             });
