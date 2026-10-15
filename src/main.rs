@@ -171,115 +171,111 @@ struct MetaNode {
     coords: [f32; 2],
 }
 
+fn metdata_as_bytes(metdata: &graph::Metadata) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    let mut data = Vec::<u8>::new();
+    let mut writer = std::io::Cursor::new(&mut data);
+    writer.write_all(&metdata.from.to_le_bytes())?;
+    writer.write_all(&metdata.to.to_le_bytes())?;
+    let name_len: u16 = metdata.name.len().try_into()?;
+    writer.write_all(&name_len.to_le_bytes())?;
+    writer.write_all(metdata.name.as_bytes())?;
+    Ok(data)
+}
+
+fn node_as_bytes(node: &graph::Node) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    // index is implicit
+    let mut data = Vec::<u8>::new();
+    let mut writer = std::io::Cursor::new(&mut data);
+    writer.write_all(&node.id.to_le_bytes())?;
+    writer.write_all(&node.lat.to_le_bytes())?;
+    writer.write_all(&node.long.to_le_bytes())?;
+    let name_bytes = node.short_name.as_bytes();
+    let name_len: u16 = name_bytes.len().try_into()?;
+    writer.write_all(&name_len.to_le_bytes())?;
+    writer.write_all(name_bytes)?;
+    Ok(data)
+}
+
+fn valid_days_to_bytes(valid_days: &[ValidDays]) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    let mut data = Vec::<u8>::new();
+    let mut writer = std::io::Cursor::new(&mut data);
+    let valid_day_len: u16 = valid_days
+        .len()
+        .try_into()
+        .expect("valid_day_len too large :(");
+    writer.write_all(&valid_day_len.to_le_bytes())?;
+    for vd in valid_days {
+        let vd_len: u8 = vd.bits.len().try_into()?;
+        writer.write_all(&[vd_len])?;
+        writer.write_all(&vd.bits)?;
+    }
+    Ok(data)
+}
+
+fn period_as_bytes(period: &graph::OperatingPeriod) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    let mut data = Vec::<u8>::new();
+    let mut writer = std::io::Cursor::new(&mut data);
+    writer.write_all(&period.from.to_le_bytes())?;
+    writer.write_all(&period.to.to_le_bytes())?;
+    let valid_day_idx: u16 = period.valid_days_idx.try_into()?;
+    writer.write_all(&valid_day_idx.to_le_bytes())?;
+    Ok(data)
+}
+
+fn journeys_as_bytes(journeys: &[graph::Journey]) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    let mut data = Vec::<u8>::new();
+    let mut writer = std::io::Cursor::new(&mut data);
+    for journey in journeys {
+        writer.write_all(&encode_arrival_departure(
+            journey.arrival,
+            journey.departure,
+        ))?;
+        write_period_index(&mut writer, journey.operating_period)?;
+    }
+    Ok(data)
+}
+
+#[allow(clippy::cast_possible_truncation)]
+fn write_period_index<T: std::io::Write>(
+    writer: &mut T,
+    operating_period: usize,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if operating_period < 128 {
+        writer.write_all(&[operating_period as u8])?;
+        return Ok(());
+    }
+    let out1 = 0x80 | ((operating_period >> 8) as u8 & 0x7F);
+    let out2 = operating_period as u8;
+    writer.write_all(&[out1, out2])?;
+    Ok(())
+}
+
+#[allow(clippy::cast_possible_truncation)]
+fn edge_as_bytes(edge: &graph::Edge) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    let mut data = Vec::<u8>::new();
+    let mut writer = std::io::Cursor::new(&mut data);
+    writer.write_all(&(edge.start_node as u32).to_le_bytes())?;
+    writer.write_all(&(edge.end_node as u32).to_le_bytes())?;
+    writer.write_all(&edge.walk_seconds.to_le_bytes())?;
+    let journeys_data = journeys_as_bytes(&edge.timetable.journeys)?;
+    let journeys_len: u32 = journeys_data.len().try_into()?;
+    writer.write_all(&journeys_len.to_le_bytes())?;
+    writer.write_all(&journeys_data)?;
+    let mut periods = Vec::<u8>::new();
+    for period in &edge.timetable.periods {
+        periods.extend(period_as_bytes(period)?);
+    }
+    let periods_len: u16 = periods.len().try_into()?;
+    writer.write_all(&periods_len.to_le_bytes())?;
+    writer.write_all(&periods)?;
+    Ok(data)
+}
+
 #[allow(clippy::cast_possible_truncation)]
 fn dump_binary(
     metdata: &graph::Metadata,
     graph: &graph::Graph,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    fn metdata_as_bytes(metdata: &graph::Metadata) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-        let mut data = Vec::<u8>::new();
-        let mut writer = std::io::Cursor::new(&mut data);
-        writer.write_all(&metdata.from.to_le_bytes())?;
-        writer.write_all(&metdata.to.to_le_bytes())?;
-        let name_len: u16 = metdata.name.len().try_into()?;
-        writer.write_all(&name_len.to_le_bytes())?;
-        writer.write_all(metdata.name.as_bytes())?;
-        Ok(data)
-    }
-
-    fn node_as_bytes(node: &graph::Node) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-        // index is implicit
-        let mut data = Vec::<u8>::new();
-        let mut writer = std::io::Cursor::new(&mut data);
-        writer.write_all(&node.id.to_le_bytes())?;
-        writer.write_all(&node.lat.to_le_bytes())?;
-        writer.write_all(&node.long.to_le_bytes())?;
-        let name_bytes = node.short_name.as_bytes();
-        let name_len: u16 = name_bytes.len().try_into()?;
-        writer.write_all(&name_len.to_le_bytes())?;
-        writer.write_all(name_bytes)?;
-        Ok(data)
-    }
-
-    fn valid_days_to_bytes(
-        valid_days: &[ValidDays],
-    ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-        let mut data = Vec::<u8>::new();
-        let mut writer = std::io::Cursor::new(&mut data);
-        let valid_day_len: u16 = valid_days
-            .len()
-            .try_into()
-            .expect("valid_day_len too large :(");
-        writer.write_all(&valid_day_len.to_le_bytes())?;
-        for vd in valid_days {
-            let vd_len: u8 = vd.bits.len().try_into()?;
-            writer.write_all(&[vd_len])?;
-            writer.write_all(&vd.bits)?;
-        }
-        Ok(data)
-    }
-
-    fn period_as_bytes(
-        period: &graph::OperatingPeriod,
-    ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-        let mut data = Vec::<u8>::new();
-        let mut writer = std::io::Cursor::new(&mut data);
-        writer.write_all(&period.from.to_le_bytes())?;
-        writer.write_all(&period.to.to_le_bytes())?;
-        let valid_day_idx: u16 = period.valid_days_idx.try_into()?;
-        writer.write_all(&valid_day_idx.to_le_bytes())?;
-        Ok(data)
-    }
-
-    fn journeys_as_bytes(
-        journeys: &[graph::Journey],
-    ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-        let mut data = Vec::<u8>::new();
-        let mut writer = std::io::Cursor::new(&mut data);
-        for journey in journeys {
-            writer.write_all(&encode_arrival_departure(
-                journey.arrival,
-                journey.departure,
-            ))?;
-            write_period_index(&mut writer, journey.operating_period)?;
-        }
-        Ok(data)
-    }
-
-    fn write_period_index<T: std::io::Write>(
-        writer: &mut T,
-        operating_period: usize,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        if operating_period < 128 {
-            writer.write_all(&[operating_period as u8])?;
-            return Ok(());
-        }
-        let out1 = 0x80 | ((operating_period >> 8) as u8 & 0x7F);
-        let out2 = operating_period as u8;
-        writer.write_all(&[out1, out2])?;
-        Ok(())
-    }
-
-    fn edge_as_bytes(edge: &graph::Edge) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-        let mut data = Vec::<u8>::new();
-        let mut writer = std::io::Cursor::new(&mut data);
-        writer.write_all(&(edge.start_node as u32).to_le_bytes())?;
-        writer.write_all(&(edge.end_node as u32).to_le_bytes())?;
-        writer.write_all(&edge.walk_seconds.to_le_bytes())?;
-        let journeys_data = journeys_as_bytes(&edge.timetable.journeys)?;
-        let journeys_len: u32 = journeys_data.len().try_into()?;
-        writer.write_all(&journeys_len.to_le_bytes())?;
-        writer.write_all(&journeys_data)?;
-        let mut periods = Vec::<u8>::new();
-        for period in &edge.timetable.periods {
-            periods.extend(period_as_bytes(period)?);
-        }
-        let periods_len: u16 = periods.len().try_into()?;
-        writer.write_all(&periods_len.to_le_bytes())?;
-        writer.write_all(&periods)?;
-        Ok(data)
-    }
-
     let mut opts = std::fs::OpenOptions::new();
     opts.write(true).create(true).truncate(true);
     let mut writer = std::io::BufWriter::new(opts.open("./graph.bin")?);
